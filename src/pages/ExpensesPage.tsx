@@ -81,12 +81,21 @@ const ExpensesPage = () => {
       
       // Smart extraction
       let extractedAmount = '0.00';
-      const amountMatch = text.match(/(?:total|amount|sum|usd|\$|€|£|₹)?\s*\$?([0-9]+[.,][0-9]{2})\b/i);
-      if (amountMatch) {
-         extractedAmount = amountMatch[1].replace(',', '.');
-      } else {
-         // Fallback to finding the largest decimal number
-         const decimals = [...text.matchAll(/[0-9]+[.,][0-9]{2}/g)].map(m => parseFloat(m[0].replace(',', '.')));
+      
+      // Try to find specific keyword-based amounts first
+      const specificMatches = [...text.matchAll(/(?:net pay|total amount|net amount|amount|total|sum|usd|\$|€|£|₹)\s*[:.\-]*\s*\$?\s*([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)\b/gi)];
+      
+      if (specificMatches.length > 0) {
+         const specificVals = specificMatches.map(m => parseFloat(m[1].replace(/,/g, ''))).filter(n => !isNaN(n));
+         if (specificVals.length > 0) extractedAmount = Math.max(...specificVals).toFixed(2);
+      }
+      
+      if (extractedAmount === '0.00' || isNaN(parseFloat(extractedAmount))) {
+         // Fallback: find all standalone numbers and pick the largest sensible one
+         const decimals = [...text.matchAll(/\b([0-9]{1,3}(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})?|[0-9]+(?:[.,][0-9]{1,2})?)\b/g)]
+            .map(m => parseFloat(m[1].replace(/,/g, '')))
+            .filter(n => !isNaN(n) && n > 0 && n < 1000000);
+            
          if(decimals.length > 0) extractedAmount = Math.max(...decimals).toFixed(2);
       }
 
@@ -222,7 +231,7 @@ const ExpensesPage = () => {
                 <DialogTitle className="sr-only">Expense Details</DialogTitle>
                 <div className="flex items-center justify-between border-b border-border pb-4 mb-6">
                   <div>
-                    <input type="file" accept="image/*" className="hidden" id="receipt-upload" disabled={!!selectedExpense} onChange={e => { const file = e.target.files?.[0] || null; setReceiptFile(file); handleOCR(file); }} />
+                    <input type="file" accept="image/*" capture="environment" className="hidden" id="receipt-upload" disabled={!!selectedExpense} onChange={e => { const file = e.target.files?.[0] || null; setReceiptFile(file); handleOCR(file); }} />
                     <label htmlFor="receipt-upload" className="cursor-pointer">
                       <div className="flex items-center gap-2 border border-border rounded-lg px-4 py-2 hover:bg-muted transition-colors text-sm font-medium">
                         {ocrLoading ? (
@@ -255,10 +264,28 @@ const ExpensesPage = () => {
                         <Input disabled={!!selectedExpense} className="border-x-0 border-t-0 border-b-2 border-foreground rounded-none shadow-none px-0 focus-visible:ring-0 text-base" value={selectedExpense ? selectedExpense.category : form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-foreground text-sm font-semibold flex items-center gap-1">Total amount in <span className="underline cursor-pointer">currency selection ▼</span></Label>
+                        <Label className="text-foreground text-sm font-semibold flex items-center gap-1">
+                          Total amount in 
+                          {selectedExpense ? (
+                            <span className="ml-1">{selectedExpense.currency}</span>
+                          ) : (
+                            <Select value={form.currency} onValueChange={(val) => setForm((f) => ({ ...f, currency: val }))}>
+                              <SelectTrigger className="w-[80px] h-6 text-sm border-none shadow-none p-0 focus:ring-0 outline-none underline">
+                                <SelectValue placeholder="Currency" />
+                              </SelectTrigger>
+                              <SelectContent className="max-h-[200px]">
+                                {currencies.map((c) => (
+                                  <SelectItem key={c} value={c}>
+                                    {c}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </Label>
                         <div className="flex items-end gap-2">
                           <Input disabled={!!selectedExpense} type="number" className="border-x-0 border-t-0 border-b-2 border-foreground rounded-none shadow-none px-0 focus-visible:ring-0 text-base flex-1" value={selectedExpense ? selectedExpense.amount : form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
-                          <div className="font-semibold text-lg pb-1">{selectedExpense ? selectedExpense.currency : form.currency} $</div>
+                          <div className="font-semibold text-lg pb-1">{selectedExpense ? selectedExpense.currency : form.currency}</div>
                         </div>
                         {!selectedExpense && <p className="text-xs text-destructive italic max-w-xs leading-tight mt-2">Employee can submit expense in any currency (currency in which he spent the money in receipt)</p>}
                         {!selectedExpense && <p className="text-xs text-destructive italic max-w-xs leading-tight mt-1">In manager's approval dashboard, the amount should get auto-converted to base currency of the company with real-time today's currency conversion rates.</p>}
